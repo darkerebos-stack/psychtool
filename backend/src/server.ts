@@ -1,14 +1,21 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import bcrypt from "bcrypt";
 import { prisma } from "./db.js";
 
 const server = Fastify({
   logger: true,
 });
 
-// Zatiaľ testovací psychológ.
-// Neskôr ho nahradí userId získané z prihlásenia.
-const TEST_USER_ID = "ed15ea12-26f2-47e5-a784-65c1f317f07b";
+async function getTestUser() {
+  const user = await prisma.user.findUnique({
+    where: {
+      email: "psycholog@test.sk",
+    },
+  });
+
+  return user;
+}
 
 async function start() {
   await server.register(cors, {
@@ -26,13 +33,71 @@ async function start() {
   });
 
   // ==========================================================
+  // LOGIN
+  // ==========================================================
+
+  server.post("/api/auth/login", async (request, reply) => {
+    const body = request.body as {
+      email: string;
+      password: string;
+    };
+
+    if (!body.email || !body.password) {
+      return reply.code(400).send({
+        error: "Email a heslo sú povinné",
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: {
+        email: body.email,
+      },
+    });
+
+    if (!user) {
+      return reply.code(401).send({
+        error: "Nesprávny email alebo heslo",
+      });
+    }
+
+    const passwordValid = await bcrypt.compare(
+      body.password,
+      user.passwordHash
+    );
+
+    if (!passwordValid) {
+      return reply.code(401).send({
+        error: "Nesprávny email alebo heslo",
+      });
+    }
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+      },
+    };
+  });
+
+  // ==========================================================
   // GET CLIENTS
   // ==========================================================
 
-  server.get("/api/clients", async () => {
+  server.get("/api/clients", async (request, reply) => {
+    const user = await getTestUser();
+
+    if (!user) {
+      return reply.code(500).send({
+        error: "Testovací používateľ neexistuje",
+      });
+    }
+
     const clients = await prisma.client.findMany({
       where: {
-        userId: TEST_USER_ID,
+        userId: user.id,
       },
       orderBy: {
         lastName: "asc",
@@ -60,9 +125,17 @@ async function start() {
       });
     }
 
+    const user = await getTestUser();
+
+    if (!user) {
+      return reply.code(500).send({
+        error: "Testovací používateľ neexistuje",
+      });
+    }
+
     const client = await prisma.client.create({
       data: {
-        userId: TEST_USER_ID,
+        userId: user.id,
         firstName: body.firstName,
         lastName: body.lastName,
         dateOfBirth: body.dateOfBirth

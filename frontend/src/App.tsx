@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
 
+type User = {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+};
+
 type Client = {
   id: string;
   firstName: string;
@@ -22,7 +30,6 @@ function calculateAge(dateOfBirth: string | null) {
   const today = new Date();
 
   let age = today.getFullYear() - birth.getFullYear();
-
   const monthDiff = today.getMonth() - birth.getMonth();
 
   if (
@@ -36,9 +43,19 @@ function calculateAge(dateOfBirth: string | null) {
 }
 
 function App() {
+  const [user, setUser] = useState<User | null>(null);
+
+  const [email, setEmail] = useState("psycholog@test.sk");
+  const [password, setPassword] = useState("test-password");
+  const [loginError, setLoginError] = useState("");
+  const [loggingIn, setLoggingIn] = useState(false);
+
   const [clients, setClients] = useState<Client[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const [selectedClient, setSelectedClient] =
+    useState<Client | null>(null);
+
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -49,26 +66,82 @@ function App() {
     sex: "NOT_SPECIFIED",
   });
 
-  async function loadClients() {
+  async function handleLogin(event: React.FormEvent) {
+    event.preventDefault();
+
+    setLoginError("");
+    setLoggingIn(true);
+
     try {
-      const response = await fetch("http://localhost:3000/api/clients");
+      const response = await fetch(
+        "http://localhost:3000/api/auth/login",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email,
+            password,
+          }),
+        }
+      );
+
+      const data = await response.json();
 
       if (!response.ok) {
-        throw new Error("Nepodarilo sa načítať klientov");
+        throw new Error(
+          data.error || "Prihlásenie sa nepodarilo."
+        );
+      }
+
+      setUser(data.user);
+    } catch (error) {
+      setLoginError(
+        error instanceof Error
+          ? error.message
+          : "Prihlásenie sa nepodarilo."
+      );
+    } finally {
+      setLoggingIn(false);
+    }
+  }
+
+  function handleLogout() {
+    setUser(null);
+    setSelectedClient(null);
+    setClients([]);
+  }
+
+  async function loadClients() {
+    setLoading(true);
+
+    try {
+      const response = await fetch(
+        "http://localhost:3000/api/clients"
+      );
+
+      if (!response.ok) {
+        throw new Error("Nepodarilo sa načítať klientov.");
       }
 
       const data = await response.json();
       setClients(data);
     } catch (error) {
-      console.error("Chyba pri načítaní klientov:", error);
+      console.error(
+        "Chyba pri načítaní klientov:",
+        error
+      );
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadClients();
-  }, []);
+    if (user) {
+      loadClients();
+    }
+  }, [user]);
 
   function handleChange(
     field: keyof NewClient,
@@ -83,7 +156,10 @@ function App() {
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
 
-    if (!form.firstName.trim() || !form.lastName.trim()) {
+    if (
+      !form.firstName.trim() ||
+      !form.lastName.trim()
+    ) {
       alert("Vyplňte meno a priezvisko.");
       return;
     }
@@ -101,7 +177,8 @@ function App() {
           body: JSON.stringify({
             firstName: form.firstName.trim(),
             lastName: form.lastName.trim(),
-            dateOfBirth: form.dateOfBirth || undefined,
+            dateOfBirth:
+              form.dateOfBirth || undefined,
             sex: form.sex,
           }),
         }
@@ -123,20 +200,294 @@ function App() {
 
       await loadClients();
     } catch (error) {
-      console.error("Chyba pri vytváraní klienta:", error);
+      console.error(
+        "Chyba pri vytváraní klienta:",
+        error
+      );
+
       alert("Klienta sa nepodarilo vytvoriť.");
     } finally {
       setSaving(false);
     }
   }
-if (selectedClient) {
+
+  // ==========================================================
+  // LOGIN
+  // ==========================================================
+
+  if (!user) {
+    return (
+      <div style={styles.loginPage}>
+        <div style={styles.loginCard}>
+          <div style={styles.loginLogo}>
+            Psychotool
+          </div>
+
+          <h1 style={styles.loginTitle}>
+            Prihlásenie
+          </h1>
+
+          <p style={styles.loginSubtitle}>
+            Prihláste sa do svojho účtu psychológa.
+          </p>
+
+          <form onSubmit={handleLogin}>
+            <div style={styles.loginField}>
+              <label style={styles.label}>
+                Email
+              </label>
+
+              <input
+                type="email"
+                style={styles.input}
+                value={email}
+                onChange={(event) =>
+                  setEmail(event.target.value)
+                }
+                placeholder="vas@email.sk"
+                autoComplete="email"
+              />
+            </div>
+
+            <div style={styles.loginField}>
+              <label style={styles.label}>
+                Heslo
+              </label>
+
+              <input
+                type="password"
+                style={styles.input}
+                value={password}
+                onChange={(event) =>
+                  setPassword(event.target.value)
+                }
+                placeholder="Heslo"
+                autoComplete="current-password"
+              />
+            </div>
+
+            {loginError && (
+              <div style={styles.loginError}>
+                {loginError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              style={styles.loginButton}
+              disabled={loggingIn}
+            >
+              {loggingIn
+                ? "Prihlasujem..."
+                : "Prihlásiť sa"}
+            </button>
+          </form>
+
+          <div style={styles.loginHint}>
+            Testovací účet: psycholog@test.sk
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================================
+  // CLIENT DETAIL
+  // ==========================================================
+
+  if (selectedClient) {
+    return (
+      <div style={styles.app}>
+        <header style={styles.header}>
+          <div style={styles.logo}>
+            Psychotool
+          </div>
+
+          <div style={styles.headerRight}>
+            <span>
+              {user.firstName} {user.lastName}
+            </span>
+
+            <button
+              style={styles.logoutButton}
+              onClick={handleLogout}
+            >
+              Odhlásiť
+            </button>
+          </div>
+        </header>
+
+        <div style={styles.layout}>
+          <aside style={styles.sidebar}>
+            <nav>
+              <div
+                style={{
+                  ...styles.menuItem,
+                  ...styles.menuItemActive,
+                }}
+                onClick={() =>
+                  setSelectedClient(null)
+                }
+              >
+                👥 Klienti
+              </div>
+
+              <div style={styles.menuItem}>
+                📋 Dotazníky
+              </div>
+
+              <div style={styles.menuItem}>
+                🧠 Vyšetrenia
+              </div>
+
+              <div style={styles.menuItem}>
+                📊 Výsledky
+              </div>
+            </nav>
+          </aside>
+
+          <main style={styles.main}>
+            <button
+              style={styles.secondaryButton}
+              onClick={() =>
+                setSelectedClient(null)
+              }
+            >
+              ← Späť na klientov
+            </button>
+
+            <div style={styles.clientHeader}>
+              <div>
+                <h1 style={styles.title}>
+                  {selectedClient.firstName}{" "}
+                  {selectedClient.lastName}
+                </h1>
+
+                <p style={styles.subtitle}>
+                  Karta klienta
+                </p>
+              </div>
+            </div>
+
+            <section style={styles.card}>
+              <h2 style={styles.sectionTitle}>
+                Základné údaje
+              </h2>
+
+              <div style={styles.detailGrid}>
+                <div>
+                  <div style={styles.detailLabel}>
+                    Meno
+                  </div>
+
+                  <div style={styles.detailValue}>
+                    {selectedClient.firstName}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={styles.detailLabel}>
+                    Priezvisko
+                  </div>
+
+                  <div style={styles.detailValue}>
+                    {selectedClient.lastName}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={styles.detailLabel}>
+                    Dátum narodenia
+                  </div>
+
+                  <div style={styles.detailValue}>
+                    {selectedClient.dateOfBirth
+                      ? new Date(
+                          selectedClient.dateOfBirth
+                        ).toLocaleDateString("sk-SK")
+                      : "Neuvedený"}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={styles.detailLabel}>
+                    Vek
+                  </div>
+
+                  <div style={styles.detailValue}>
+                    {calculateAge(
+                      selectedClient.dateOfBirth
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={styles.detailLabel}>
+                    Pohlavie
+                  </div>
+
+                  <div style={styles.detailValue}>
+                    {selectedClient.sex === "MALE"
+                      ? "Muž"
+                      : selectedClient.sex ===
+                        "FEMALE"
+                      ? "Žena"
+                      : selectedClient.sex ===
+                        "OTHER"
+                      ? "Iné"
+                      : "Neuvedené"}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section style={styles.card}>
+              <h2 style={styles.sectionTitle}>
+                Vyšetrenia
+              </h2>
+
+              <div style={styles.placeholder}>
+                Zatiaľ žiadne vyšetrenia.
+              </div>
+            </section>
+
+            <section style={styles.card}>
+              <h2 style={styles.sectionTitle}>
+                Dotazníky
+              </h2>
+
+              <div style={styles.placeholder}>
+                Zatiaľ žiadne vyplnené dotazníky.
+              </div>
+            </section>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================================
+  // CLIENT LIST
+  // ==========================================================
+
   return (
     <div style={styles.app}>
       <header style={styles.header}>
-        <div style={styles.logo}>Psychotool</div>
+        <div style={styles.logo}>
+          Psychotool
+        </div>
 
         <div style={styles.headerRight}>
-          Psychológ
+          <span>
+            {user.firstName} {user.lastName}
+          </span>
+
+          <button
+            style={styles.logoutButton}
+            onClick={handleLogout}
+          >
+            Odhlásiť
+          </button>
         </div>
       </header>
 
@@ -144,150 +495,11 @@ if (selectedClient) {
         <aside style={styles.sidebar}>
           <nav>
             <div
-              style={{ ...styles.menuItem, ...styles.menuItemActive }}
-              onClick={() => setSelectedClient(null)}
+              style={{
+                ...styles.menuItem,
+                ...styles.menuItemActive,
+              }}
             >
-              👥 Klienti
-            </div>
-
-            <div style={styles.menuItem}>
-              📋 Dotazníky
-            </div>
-
-            <div style={styles.menuItem}>
-              🧠 Vyšetrenia
-            </div>
-
-            <div style={styles.menuItem}>
-              📊 Výsledky
-            </div>
-          </nav>
-        </aside>
-
-        <main style={styles.main}>
-          <button
-            style={styles.secondaryButton}
-            onClick={() => setSelectedClient(null)}
-          >
-            ← Späť na klientov
-          </button>
-
-          <div style={styles.clientHeader}>
-            <div>
-              <h1 style={styles.title}>
-                {selectedClient.firstName}{" "}
-                {selectedClient.lastName}
-              </h1>
-
-              <p style={styles.subtitle}>
-                Karta klienta
-              </p>
-            </div>
-          </div>
-
-          <section style={styles.card}>
-            <h2 style={styles.sectionTitle}>
-              Základné údaje
-            </h2>
-
-            <div style={styles.detailGrid}>
-              <div>
-                <div style={styles.detailLabel}>
-                  Meno
-                </div>
-                <div style={styles.detailValue}>
-                  {selectedClient.firstName}
-                </div>
-              </div>
-
-              <div>
-                <div style={styles.detailLabel}>
-                  Priezvisko
-                </div>
-                <div style={styles.detailValue}>
-                  {selectedClient.lastName}
-                </div>
-              </div>
-
-              <div>
-                <div style={styles.detailLabel}>
-                  Dátum narodenia
-                </div>
-                <div style={styles.detailValue}>
-                  {selectedClient.dateOfBirth
-                    ? new Date(
-                        selectedClient.dateOfBirth
-                      ).toLocaleDateString("sk-SK")
-                    : "Neuvedený"}
-                </div>
-              </div>
-
-              <div>
-                <div style={styles.detailLabel}>
-                  Vek
-                </div>
-                <div style={styles.detailValue}>
-                  {calculateAge(
-                    selectedClient.dateOfBirth
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <div style={styles.detailLabel}>
-                  Pohlavie
-                </div>
-                <div style={styles.detailValue}>
-                  {selectedClient.sex === "MALE"
-                    ? "Muž"
-                    : selectedClient.sex === "FEMALE"
-                    ? "Žena"
-                    : selectedClient.sex === "OTHER"
-                    ? "Iné"
-                    : "Neuvedené"}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section style={styles.card}>
-            <h2 style={styles.sectionTitle}>
-              Vyšetrenia
-            </h2>
-
-            <div style={styles.placeholder}>
-              Zatiaľ žiadne vyšetrenia.
-            </div>
-          </section>
-
-          <section style={styles.card}>
-            <h2 style={styles.sectionTitle}>
-              Dotazníky
-            </h2>
-
-            <div style={styles.placeholder}>
-              Zatiaľ žiadne vyplnené dotazníky.
-            </div>
-          </section>
-        </main>
-      </div>
-    </div>
-  );
-}
-  return (
-    <div style={styles.app}>
-      <header style={styles.header}>
-        <div style={styles.logo}>Psychotool</div>
-
-        <div style={styles.headerRight}>
-          Psychológ
-        </div>
-      </header>
-
-      <div style={styles.layout}>
-        <aside style={styles.sidebar}>
-          <nav>
-            <div style={{ ...styles.menuItem, ...styles.menuItemActive }}>
               👥 Klienti
             </div>
 
@@ -308,16 +520,21 @@ if (selectedClient) {
         <main style={styles.main}>
           <div style={styles.pageHeader}>
             <div>
-              <h1 style={styles.title}>Klienti</h1>
+              <h1 style={styles.title}>
+                Klienti
+              </h1>
 
               <p style={styles.subtitle}>
-                Zoznam klientov a ich psychologických vyšetrení
+                Zoznam klientov a ich psychologických
+                vyšetrení
               </p>
             </div>
 
             <button
               style={styles.primaryButton}
-              onClick={() => setShowForm(true)}
+              onClick={() =>
+                setShowForm(true)
+              }
             >
               + Nový klient
             </button>
@@ -423,7 +640,9 @@ if (selectedClient) {
                   <button
                     type="button"
                     style={styles.secondaryButton}
-                    onClick={() => setShowForm(false)}
+                    onClick={() =>
+                      setShowForm(false)
+                    }
                     disabled={saving}
                   >
                     Zrušiť
@@ -457,29 +676,40 @@ if (selectedClient) {
                 </h2>
 
                 <p>
-                  Vytvorte prvého klienta pomocou tlačidla
-                  „Nový klient“.
+                  Vytvorte prvého klienta pomocou
+                  tlačidla „Nový klient“.
                 </p>
               </div>
             ) : (
               <table style={styles.table}>
                 <thead>
                   <tr>
-                    <th style={styles.th}>Meno</th>
+                    <th style={styles.th}>
+                      Meno
+                    </th>
+
                     <th style={styles.th}>
                       Dátum narodenia
                     </th>
-                    <th style={styles.th}>Vek</th>
-                    <th style={styles.th}>Pohlavie</th>
+
+                    <th style={styles.th}>
+                      Vek
+                    </th>
+
+                    <th style={styles.th}>
+                      Pohlavie
+                    </th>
                   </tr>
                 </thead>
 
                 <tbody>
                   {clients.map((client) => (
                     <tr
-                     key={client.id}
-                     onClick={() => setSelectedClient(client)}
-                     style={styles.tableRow}
+                      key={client.id}
+                      onClick={() =>
+                        setSelectedClient(client)
+                      }
+                      style={styles.tableRow}
                     >
                       <td style={styles.td}>
                         <strong>
@@ -492,7 +722,9 @@ if (selectedClient) {
                         {client.dateOfBirth
                           ? new Date(
                               client.dateOfBirth
-                            ).toLocaleDateString("sk-SK")
+                            ).toLocaleDateString(
+                              "sk-SK"
+                            )
                           : "—"}
                       </td>
 
@@ -523,13 +755,90 @@ if (selectedClient) {
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
+const styles: Record<
+  string,
+  React.CSSProperties
+> = {
   app: {
     minHeight: "100vh",
     background: "#f5f7fa",
     color: "#1f2937",
     fontFamily:
       "Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+  },
+
+  loginPage: {
+    minHeight: "100vh",
+    background: "#f5f7fa",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "20px",
+  },
+
+  loginCard: {
+    width: "100%",
+    maxWidth: "420px",
+    background: "#ffffff",
+    border: "1px solid #e5e7eb",
+    borderRadius: "14px",
+    padding: "40px",
+    boxShadow:
+      "0 10px 30px rgba(0,0,0,0.06)",
+    boxSizing: "border-box",
+  },
+
+  loginLogo: {
+    fontSize: "25px",
+    fontWeight: 700,
+    marginBottom: "30px",
+    textAlign: "center",
+  },
+
+  loginTitle: {
+    margin: 0,
+    fontSize: "27px",
+    textAlign: "center",
+  },
+
+  loginSubtitle: {
+    color: "#6b7280",
+    textAlign: "center",
+    marginTop: "8px",
+    marginBottom: "30px",
+  },
+
+  loginField: {
+    marginBottom: "18px",
+  },
+
+  loginButton: {
+    width: "100%",
+    border: "none",
+    borderRadius: "8px",
+    padding: "12px 18px",
+    background: "#4f46e5",
+    color: "white",
+    fontWeight: 600,
+    fontSize: "15px",
+    cursor: "pointer",
+  },
+
+  loginError: {
+    background: "#fef2f2",
+    border: "1px solid #fecaca",
+    color: "#b91c1c",
+    borderRadius: "7px",
+    padding: "10px 12px",
+    marginBottom: "18px",
+    fontSize: "14px",
+  },
+
+  loginHint: {
+    marginTop: "24px",
+    color: "#9ca3af",
+    fontSize: "12px",
+    textAlign: "center",
   },
 
   header: {
@@ -550,6 +859,19 @@ const styles: Record<string, React.CSSProperties> = {
   headerRight: {
     color: "#6b7280",
     fontSize: "14px",
+    display: "flex",
+    alignItems: "center",
+    gap: "16px",
+  },
+
+  logoutButton: {
+    border: "1px solid #d1d5db",
+    borderRadius: "7px",
+    padding: "7px 12px",
+    background: "#ffffff",
+    color: "#374151",
+    cursor: "pointer",
+    fontSize: "13px",
   },
 
   layout: {
@@ -627,7 +949,9 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px solid #e5e7eb",
     borderRadius: "12px",
     padding: "24px",
-    boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
+    marginBottom: "24px",
+    boxShadow:
+      "0 1px 2px rgba(0,0,0,0.03)",
   },
 
   formCard: {
@@ -636,7 +960,8 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: "12px",
     padding: "24px",
     marginBottom: "24px",
-    boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
+    boxShadow:
+      "0 1px 2px rgba(0,0,0,0.03)",
   },
 
   formTitle: {
@@ -706,7 +1031,8 @@ const styles: Record<string, React.CSSProperties> = {
     borderBottom: "1px solid #f0f0f0",
     fontSize: "14px",
   },
-    tableRow: {
+
+  tableRow: {
     cursor: "pointer",
   },
 
