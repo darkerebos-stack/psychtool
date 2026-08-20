@@ -1,0 +1,539 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserRole {
+  PSYCHOLOGIST
+  ADMIN
+}
+
+enum Sex {
+  MALE
+  FEMALE
+  OTHER
+  NOT_SPECIFIED
+}
+
+enum QuestionnaireStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum QuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  SCALE
+  TEXT
+  NUMBER
+  BOOLEAN
+}
+
+enum AdministrationMode {
+  TABLET
+  LINK
+}
+
+enum AdministrationStatus {
+  CREATED
+  STARTED
+  COMPLETED
+  EXPIRED
+  CANCELLED
+}
+
+enum ScoringMethod {
+  SUM
+  MEAN
+  WEIGHTED_SUM
+  WEIGHTED_MEAN
+}
+
+
+// ============================================================
+// USER
+// ============================================================
+
+model User {
+  id           String   @id @default(uuid())
+
+  email        String   @unique
+  passwordHash String
+
+  firstName    String
+  lastName     String
+
+  role         UserRole @default(PSYCHOLOGIST)
+
+  clients      Client[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+
+// ============================================================
+// CLIENT
+// ============================================================
+
+model Client {
+  id           String   @id @default(uuid())
+
+  userId       String
+  user         User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  firstName    String
+  lastName     String
+  dateOfBirth  DateTime?
+  sex          Sex      @default(NOT_SPECIFIED)
+
+  externalId   String?
+  notes        String?
+
+  administrations Administration[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+  @@index([lastName])
+}
+
+
+// ============================================================
+// AGE RANGE
+// ============================================================
+
+model AgeRange {
+  id          String   @id @default(uuid())
+
+  name        String
+
+  minAge      Int
+  maxAge      Int?
+
+  questionnaires QuestionnaireAgeRange[]
+
+  createdAt   DateTime @default(now())
+}
+
+
+// ============================================================
+// QUESTIONNAIRE
+// ============================================================
+
+model Questionnaire {
+  id           String   @id @default(uuid())
+
+  name         String
+  description  String?
+
+  status       QuestionnaireStatus @default(DRAFT)
+
+  language     String?
+  license      String?
+  copyright    String?
+  source       String?
+  estimatedMinutes Int?
+
+  versions     QuestionnaireVersion[]
+
+  ageRanges    QuestionnaireAgeRange[]
+
+  categories   QuestionnaireCategory[]
+
+  batteries    BatteryItem[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+
+// ============================================================
+// QUESTIONNAIRE VERSION
+// ============================================================
+
+model QuestionnaireVersion {
+  id              String   @id @default(uuid())
+
+  questionnaireId String
+  questionnaire   Questionnaire @relation(fields: [questionnaireId], references: [id], onDelete: Cascade)
+
+  version         Int
+
+  notes           String?
+
+  questions       Question[]
+  scales          Scale[]
+
+  administrations Administration[]
+
+  createdAt       DateTime @default(now())
+
+  @@unique([questionnaireId, version])
+}
+
+
+// ============================================================
+// QUESTION
+// ============================================================
+
+model Question {
+  id              String   @id @default(uuid())
+
+  questionnaireVersionId String
+  questionnaireVersion   QuestionnaireVersion @relation(fields: [questionnaireVersionId], references: [id], onDelete: Cascade)
+
+  text            String
+  type            QuestionType
+  order           Int
+  required        Boolean @default(true)
+
+  minValue        Float?
+  maxValue        Float?
+
+  options         QuestionOption[]
+  scaleQuestions  ScaleQuestion[]
+  answers         Answer[]
+
+  createdAt       DateTime @default(now())
+
+  @@index([questionnaireVersionId])
+  @@index([questionnaireVersionId, order])
+}
+
+
+// ============================================================
+// QUESTION OPTIONS
+// ============================================================
+
+model QuestionOption {
+  id           String   @id @default(uuid())
+
+  questionId   String
+  question     Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  text         String
+  value        Float
+  order        Int
+
+  @@index([questionId])
+}
+
+
+// ============================================================
+// SCALE / SUBSCALE
+// ============================================================
+
+model Scale {
+  id                    String   @id @default(uuid())
+
+  questionnaireVersionId String
+  questionnaireVersion   QuestionnaireVersion @relation(fields: [questionnaireVersionId], references: [id], onDelete: Cascade)
+
+  name                  String
+  description           String?
+
+  scoringMethod         ScoringMethod @default(SUM)
+
+  scaleQuestions        ScaleQuestion[]
+  normTables            NormTable[]
+  interpretationRules   InterpretationRule[]
+  results               Result[]
+
+  createdAt             DateTime @default(now())
+
+  @@index([questionnaireVersionId])
+}
+
+
+// ============================================================
+// QUESTION → SCALE
+// ============================================================
+
+model ScaleQuestion {
+  id          String   @id @default(uuid())
+
+  scaleId     String
+  questionId  String
+
+  scale       Scale    @relation(fields: [scaleId], references: [id], onDelete: Cascade)
+  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  weight      Float @default(1)
+
+  reverseScoring Boolean @default(false)
+
+  scoreMappings ScoreMapping[]
+
+  @@unique([scaleId, questionId])
+}
+
+
+// ============================================================
+// SCORE MAPPING
+// ============================================================
+
+model ScoreMapping {
+  id              String   @id @default(uuid())
+
+  scaleQuestionId String
+  scaleQuestion   ScaleQuestion @relation(fields: [scaleQuestionId], references: [id], onDelete: Cascade)
+
+  inputValue      Float
+  outputValue     Float
+
+  @@unique([scaleQuestionId, inputValue])
+}
+
+
+// ============================================================
+// NORM TABLE
+// ============================================================
+
+model NormTable {
+  id          String   @id @default(uuid())
+
+  scaleId     String
+  scale       Scale @relation(fields: [scaleId], references: [id], onDelete: Cascade)
+
+  name        String
+
+  rows        NormRow[]
+
+  createdAt   DateTime @default(now())
+
+  @@index([scaleId])
+}
+
+
+// ============================================================
+// NORM ROW
+// ============================================================
+
+model NormRow {
+  id            String   @id @default(uuid())
+
+  normTableId   String
+  normTable     NormTable @relation(fields: [normTableId], references: [id], onDelete: Cascade)
+
+  minAge        Int?
+  maxAge        Int?
+
+  sex           Sex?
+
+  rawScore      Float
+
+  standardScore Float?
+  percentile    Float?
+  sten          Float?
+
+  @@index([normTableId])
+}
+
+
+// ============================================================
+// INTERPRETATION RULE
+// ============================================================
+
+model InterpretationRule {
+  id          String   @id @default(uuid())
+
+  scaleId     String
+  scale       Scale @relation(fields: [scaleId], references: [id], onDelete: Cascade)
+
+  minScore    Float?
+  maxScore    Float?
+
+  label       String
+  description String?
+
+  @@index([scaleId])
+}
+
+
+// ============================================================
+// BATTERY
+// ============================================================
+
+model Battery {
+  id           String   @id @default(uuid())
+
+  name         String
+  description  String?
+
+  items        BatteryItem[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+
+// ============================================================
+// BATTERY ITEM
+// ============================================================
+
+model BatteryItem {
+  id               String @id @default(uuid())
+
+  batteryId        String
+  questionnaireId  String
+
+  battery          Battery @relation(fields: [batteryId], references: [id], onDelete: Cascade)
+  questionnaire    Questionnaire @relation(fields: [questionnaireId], references: [id], onDelete: Cascade)
+
+  order            Int
+
+  @@unique([batteryId, questionnaireId])
+  @@index([batteryId, order])
+}
+
+
+// ============================================================
+// QUESTIONNAIRE AGE RANGE
+// ============================================================
+
+model QuestionnaireAgeRange {
+  id              String @id @default(uuid())
+
+  questionnaireId String
+  ageRangeId      String
+
+  questionnaire   Questionnaire @relation(fields: [questionnaireId], references: [id], onDelete: Cascade)
+  ageRange        AgeRange @relation(fields: [ageRangeId], references: [id], onDelete: Cascade)
+
+  @@unique([questionnaireId, ageRangeId])
+}
+
+
+// ============================================================
+// CATEGORY
+// ============================================================
+
+model Category {
+  id             String   @id @default(uuid())
+
+  name           String
+  description    String?
+
+  questionnaires QuestionnaireCategory[]
+
+  createdAt      DateTime @default(now())
+}
+
+
+// ============================================================
+// QUESTIONNAIRE ↔ CATEGORY
+// ============================================================
+
+model QuestionnaireCategory {
+  id              String @id @default(uuid())
+
+  questionnaireId String
+  categoryId      String
+
+  questionnaire   Questionnaire @relation(fields: [questionnaireId], references: [id], onDelete: Cascade)
+  category        Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([questionnaireId, categoryId])
+}
+
+
+// ============================================================
+// ADMINISTRATION
+// ============================================================
+
+model Administration {
+  id              String   @id @default(uuid())
+
+  clientId        String
+  client          Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  questionnaireVersionId String
+  questionnaireVersion   QuestionnaireVersion @relation(fields: [questionnaireVersionId], references: [id])
+
+  mode            AdministrationMode
+
+  status          AdministrationStatus @default(CREATED)
+
+  accessToken     String? @unique
+
+  startedAt       DateTime?
+  completedAt     DateTime?
+  expiresAt       DateTime?
+
+  // Snapshot údajov klienta v čase administrácie
+  ageAtAdministration Int?
+  sexAtAdministration Sex?
+
+  answers         Answer[]
+  results         Result[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([status])
+}
+
+
+// ============================================================
+// ANSWER
+// ============================================================
+
+model Answer {
+  id                String   @id @default(uuid())
+
+  administrationId  String
+  questionId        String
+
+  administration    Administration @relation(fields: [administrationId], references: [id], onDelete: Cascade)
+  question          Question @relation(fields: [questionId], references: [id])
+
+  // Odpoveď uložená ako text.
+  // Umožňuje uchovať číslo, text, boolean aj viacnásobné odpovede.
+  value             String
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([administrationId, questionId])
+  @@index([administrationId])
+}
+
+
+// ============================================================
+// RESULT
+// ============================================================
+
+model Result {
+  id                String   @id @default(uuid())
+
+  administrationId  String
+  scaleId           String
+
+  administration    Administration @relation(fields: [administrationId], references: [id], onDelete: Cascade)
+  scale             Scale @relation(fields: [scaleId], references: [id])
+
+  rawScore          Float?
+  standardScore     Float?
+  percentile        Float?
+  sten              Float?
+
+  interpretation    String?
+
+  createdAt         DateTime @default(now())
+
+  @@unique([administrationId, scaleId])
+  @@index([administrationId])
+}
