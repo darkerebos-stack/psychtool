@@ -52,6 +52,12 @@ enum AdministrationStatus {
   CANCELLED
 }
 
+enum ExaminationStatus {
+  PLANNED
+  COMPLETED
+  CANCELLED
+}
+
 enum ScoringMethod {
   SUM
   MEAN
@@ -97,10 +103,14 @@ model Client {
   dateOfBirth  DateTime?
   sex          Sex      @default(NOT_SPECIFIED)
 
+  email        String?
+  phone        String?
+
   externalId   String?
   notes        String?
 
   administrations Administration[]
+  examinations   Examination[]
 
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -448,6 +458,27 @@ model QuestionnaireCategory {
   @@unique([questionnaireId, categoryId])
 }
 
+// ============================================================
+// EXAMINATION
+// ============================================================
+
+model Examination {
+  id        String   @id @default(uuid())
+
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  date      DateTime
+  type      String
+  status    ExaminationStatus @default(PLANNED)
+  notes     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([date])
+}
 
 // ============================================================
 // ADMINISTRATION

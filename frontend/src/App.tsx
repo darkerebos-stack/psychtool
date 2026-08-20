@@ -1,60 +1,55 @@
 import { useEffect, useState } from "react";
 
-type User = {
-  id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  role: string;
-};
+import type {
+  User,
+  Client,
+  NewClient,
+  Examination,
+  NewExamination,
+} from "./types";
 
-type Client = {
-  id: string;
-  firstName: string;
-  lastName: string;
-  dateOfBirth: string | null;
-  sex: "MALE" | "FEMALE" | "OTHER" | "NOT_SPECIFIED";
-};
+import {
+  calculateAge,
+  formatDate,
+  examinationStatusLabel,
+} from "./utils/formatters";
 
-type NewClient = {
-  firstName: string;
-  lastName: string;
-  dateOfBirth: string;
-  sex: "MALE" | "FEMALE" | "OTHER" | "NOT_SPECIFIED";
-};
+import {
+  checkSession,
+  login,
+  logout,
+} from "./api/auth";
 
-function calculateAge(dateOfBirth: string | null) {
-  if (!dateOfBirth) return "";
+import {
+  getClients,
+  createClient,
+  updateClient,
+} from "./api/clients";
 
-  const birth = new Date(dateOfBirth);
-  const today = new Date();
+import {
+  getExaminations,
+  createExamination,
+} from "./api/examinations";
 
-  let age = today.getFullYear() - birth.getFullYear();
-  const monthDiff = today.getMonth() - birth.getMonth();
-
-  if (
-    monthDiff < 0 ||
-    (monthDiff === 0 && today.getDate() < birth.getDate())
-  ) {
-    age--;
-  }
-
-  return age;
-}
+import ClientDetail from "./components/ClientDetail";
 
 function App() {
   const [user, setUser] = useState<User | null>(null);
 
   const [email, setEmail] = useState("psycholog@test.sk");
   const [password, setPassword] = useState("test-password");
+
   const [loginError, setLoginError] = useState("");
   const [loggingIn, setLoggingIn] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
 
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(false);
 
   const [selectedClient, setSelectedClient] =
     useState<Client | null>(null);
+  const [selectedExamination, setSelectedExamination] =
+    useState<Examination | null>(null);
 
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -64,86 +59,167 @@ function App() {
     lastName: "",
     dateOfBirth: "",
     sex: "NOT_SPECIFIED",
+    email: "",
+    phone: "",
+    notes: "",
   });
 
-  async function handleLogin(event: React.FormEvent) {
-    event.preventDefault();
+  const [examinations, setExaminations] =
+    useState<Examination[]>([]);
 
-    setLoginError("");
-    setLoggingIn(true);
+  const [loadingExaminations, setLoadingExaminations] =
+    useState(false);
 
-    try {
-      const response = await fetch(
-        "http://localhost:3000/api/auth/login",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email,
-            password,
-          }),
-        }
-      );
+  const [showExaminationForm, setShowExaminationForm] =
+    useState(false);
 
-      const data = await response.json();
+  const [savingExamination, setSavingExamination] =
+    useState(false);
 
-      if (!response.ok) {
-        throw new Error(
-          data.error || "Prihlásenie sa nepodarilo."
-        );
-      }
+  const [examinationForm, setExaminationForm] =
+    useState<NewExamination>({
+      date: "",
+      type: "",
+      status: "PLANNED",
+      notes: "",
+    });
 
-      setUser(data.user);
-    } catch (error) {
-      setLoginError(
-        error instanceof Error
-          ? error.message
-          : "Prihlásenie sa nepodarilo."
-      );
-    } finally {
-      setLoggingIn(false);
-    }
-  }
-
-  function handleLogout() {
-    setUser(null);
-    setSelectedClient(null);
-    setClients([]);
-  }
-
-  async function loadClients() {
-    setLoading(true);
-
-    try {
-      const response = await fetch(
-        "http://localhost:3000/api/clients"
-      );
-
-      if (!response.ok) {
-        throw new Error("Nepodarilo sa načítať klientov.");
-      }
-
-      const data = await response.json();
-      setClients(data);
-    } catch (error) {
-      console.error(
-        "Chyba pri načítaní klientov:",
-        error
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
+  // ==========================================================
+  // CHECK SESSION
+  // ==========================================================
 
   useEffect(() => {
-    if (user) {
-      loadClients();
-    }
-  }, [user]);
+  async function verifySession() {
+    const currentUser = await checkSession();
 
-  function handleChange(
+    setUser(currentUser);
+    setCheckingSession(false);
+  }
+
+  verifySession();
+  }, []);
+  // ==========================================================
+  // LOGIN
+  // ==========================================================
+
+  async function handleLogin(
+  event: React.FormEvent
+) {
+  event.preventDefault();
+
+  setLoginError("");
+  setLoggingIn(true);
+
+  try {
+    const currentUser = await login(
+      email,
+      password
+    );
+
+    setUser(currentUser);
+  } catch (error) {
+    setLoginError(
+      error instanceof Error
+        ? error.message
+        : "Prihlásenie sa nepodarilo."
+    );
+  } finally {
+    setLoggingIn(false);
+  }
+}
+
+  // ==========================================================
+  // LOGOUT
+  // ==========================================================
+
+  async function handleLogout() {
+  try {
+    await logout();
+  } catch (error) {
+    console.error(
+      "Nepodarilo sa odhlásiť:",
+      error
+    );
+  } finally {
+    setUser(null);
+    setSelectedClient(null);
+    setSelectedExamination(null);
+    setClients([]);
+    setExaminations([]);
+  }
+}
+
+  // ==========================================================
+  // LOAD CLIENTS
+  // ==========================================================
+
+  async function loadClients() {
+  setLoading(true);
+
+  try {
+    const data = await getClients();
+
+    setClients(data);
+  } catch (error) {
+    console.error(
+      "Chyba pri načítaní klientov:",
+      error
+    );
+  } finally {
+    setLoading(false);
+  }
+}
+  // ==========================================================
+  // LOAD CLIENTS AFTER LOGIN
+  // ==========================================================
+
+  useEffect(() => {
+    if (!user) return;
+
+    loadClients();
+  }, [user]);
+  
+  // ==========================================================
+  // LOAD EXAMINATIONS
+  // ==========================================================
+
+  async function loadExaminations(
+  clientId: string
+) {
+  setLoadingExaminations(true);
+
+  try {
+    const data = await getExaminations(clientId);
+
+    setExaminations(data);
+  } catch (error) {
+    console.error(
+      "Chyba pri načítaní vyšetrení:",
+      error
+    );
+
+    setExaminations([]);
+  } finally {
+    setLoadingExaminations(false);
+  }
+}
+
+  // ==========================================================
+  // SELECT CLIENT
+  // ==========================================================
+
+  function handleSelectClient(client: Client) {
+    setSelectedClient(client);
+    setSelectedExamination(null);
+    setShowExaminationForm(false);
+    loadExaminations(client.id);
+  }
+
+  // ==========================================================
+  // CLIENT FORM
+  // ==========================================================
+
+  function handleClientChange(
     field: keyof NewClient,
     value: string
   ) {
@@ -153,7 +229,13 @@ function App() {
     }));
   }
 
-  async function handleSubmit(event: React.FormEvent) {
+  // ==========================================================
+  // CREATE CLIENT
+  // ==========================================================
+
+  async function handleSubmit(
+    event: React.FormEvent
+  ) {
     event.preventDefault();
 
     if (
@@ -167,34 +249,17 @@ function App() {
     setSaving(true);
 
     try {
-      const response = await fetch(
-        "http://localhost:3000/api/clients",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            firstName: form.firstName.trim(),
-            lastName: form.lastName.trim(),
-            dateOfBirth:
-              form.dateOfBirth || undefined,
-            sex: form.sex,
-          }),
-        }
-      );
+  await createClient(form);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText);
-      }
-
-      setForm({
-        firstName: "",
-        lastName: "",
-        dateOfBirth: "",
-        sex: "NOT_SPECIFIED",
-      });
+  setForm({
+    firstName: "",
+    lastName: "",
+    dateOfBirth: "",
+    sex: "NOT_SPECIFIED",
+    email: "",
+    phone: "",
+    notes: "",
+  });
 
       setShowForm(false);
 
@@ -205,14 +270,142 @@ function App() {
         error
       );
 
-      alert("Klienta sa nepodarilo vytvoriť.");
+      alert(
+        "Klienta sa nepodarilo vytvoriť."
+      );
     } finally {
       setSaving(false);
     }
   }
+  
+async function handleUpdateClient(
+  data: NewClient
+) {
+  if (!selectedClient) {
+    return;
+  }
+
+  try {
+    const updatedClient = await updateClient(
+      selectedClient.id,
+      data
+    );
+
+    setSelectedClient(updatedClient);
+
+    setClients((current) =>
+      current.map((client) =>
+        client.id === updatedClient.id
+          ? updatedClient
+          : client
+      )
+    );
+  } catch (error) {
+    console.error(
+      "Chyba pri aktualizácii klienta:",
+      error
+    );
+
+    alert(
+      "Údaje klienta sa nepodarilo uložiť."
+    );
+	throw error;
+  }
+}
+ 
+  // ==========================================================
+  // EXAMINATION FORM
+  // ==========================================================
+
+  function handleExaminationChange(
+    field: keyof NewExamination,
+    value: string
+  ) {
+    setExaminationForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
 
   // ==========================================================
-  // LOGIN
+  // CREATE EXAMINATION
+  // ==========================================================
+
+  async function handleExaminationSubmit(
+    event: React.FormEvent
+  ) {
+    event.preventDefault();
+
+    if (!selectedClient) {
+      return;
+    }
+
+    if (
+      !examinationForm.date ||
+      !examinationForm.type.trim()
+    ) {
+      alert(
+        "Vyplňte dátum a typ vyšetrenia."
+      );
+      return;
+    }
+
+    setSavingExamination(true);
+
+    try {
+      await createExamination(
+		selectedClient.id,
+		examinationForm
+		);
+
+      setExaminationForm({
+        date: "",
+        type: "",
+        status: "PLANNED",
+        notes: "",
+      });
+
+      setShowExaminationForm(false);
+
+      await loadExaminations(
+        selectedClient.id
+      );
+    } catch (error) {
+      console.error(
+        "Chyba pri vytváraní vyšetrenia:",
+        error
+      );
+
+      alert(
+        "Vyšetrenie sa nepodarilo vytvoriť."
+      );
+    } finally {
+      setSavingExamination(false);
+    }
+  }
+
+  // ==========================================================
+  // CHECKING SESSION
+  // ==========================================================
+
+  if (checkingSession) {
+    return (
+      <div style={styles.loginPage}>
+        <div style={styles.loginCard}>
+          <div style={styles.loginLogo}>
+            Psychotool
+          </div>
+
+          <p style={styles.loginSubtitle}>
+            Kontrolujem prihlásenie...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================================
+  // LOGIN SCREEN
   // ==========================================================
 
   if (!user) {
@@ -296,6 +489,189 @@ function App() {
   // ==========================================================
 
   if (selectedClient) {
+	  if (selectedExamination) {
+  return (
+    <div style={styles.app}>
+      <header style={styles.header}>
+        <div style={styles.logo}>
+          Psychotool
+        </div>
+
+        <div style={styles.headerRight}>
+          <span>
+            {user.firstName} {user.lastName}
+          </span>
+
+          <button
+            style={styles.logoutButton}
+            onClick={handleLogout}
+          >
+            Odhlásiť
+          </button>
+        </div>
+      </header>
+
+      <div style={styles.layout}>
+        <aside style={styles.sidebar}>
+          <nav>
+            <div
+              style={{
+                ...styles.menuItem,
+                ...styles.menuItemActive,
+              }}
+              onClick={() => {
+                setSelectedExamination(null);
+              }}
+            >
+              👥 Klienti
+            </div>
+
+            <div style={styles.menuItem}>
+              📋 Dotazníky
+            </div>
+
+            <div style={styles.menuItem}>
+              🧠 Vyšetrenia
+            </div>
+
+            <div style={styles.menuItem}>
+              📊 Výsledky
+            </div>
+          </nav>
+        </aside>
+
+        <main style={styles.main}>
+          <button
+            style={styles.secondaryButton}
+            onClick={() =>
+              setSelectedExamination(null)
+            }
+          >
+            ← Späť na vyšetrenia
+          </button>
+
+          <div style={styles.clientHeader}>
+            <div>
+              <h1 style={styles.title}>
+                {selectedExamination.type}
+              </h1>
+
+              <p style={styles.subtitle}>
+                Vyšetrenie klienta{" "}
+                {selectedClient.firstName}{" "}
+                {selectedClient.lastName}
+              </p>
+            </div>
+          </div>
+
+          <section style={styles.card}>
+            <h2 style={styles.sectionTitle}>
+              Základné údaje vyšetrenia
+            </h2>
+
+            <div style={styles.detailGrid}>
+              <div>
+                <div style={styles.detailLabel}>
+                  Klient
+                </div>
+
+                <div style={styles.detailValue}>
+                  {selectedClient.firstName}{" "}
+                  {selectedClient.lastName}
+                </div>
+              </div>
+
+              <div>
+                <div style={styles.detailLabel}>
+                  Dátum
+                </div>
+
+                <div style={styles.detailValue}>
+                  {formatDate(
+                    selectedExamination.date
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <div style={styles.detailLabel}>
+                  Typ vyšetrenia
+                </div>
+
+                <div style={styles.detailValue}>
+                  {selectedExamination.type}
+                </div>
+              </div>
+
+              <div>
+                <div style={styles.detailLabel}>
+                  Stav
+                </div>
+
+                <div
+                  style={styles.examinationStatus}
+                >
+                  {examinationStatusLabel(
+                    selectedExamination.status
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section style={styles.card}>
+            <h2 style={styles.sectionTitle}>
+              Poznámka k vyšetreniu
+            </h2>
+
+            {selectedExamination.notes ? (
+              <div style={styles.notesBox}>
+                {selectedExamination.notes}
+              </div>
+            ) : (
+              <div style={styles.placeholder}>
+                K vyšetreniu zatiaľ nie je
+                pridaná žiadna poznámka.
+              </div>
+            )}
+          </section>
+
+          <section style={styles.card}>
+            <h2 style={styles.sectionTitle}>
+              Psychologické vyšetrenie
+            </h2>
+
+            <div style={styles.placeholder}>
+              <div
+                style={{
+                  fontSize: "28px",
+                  marginBottom: "12px",
+                }}
+              >
+                🧠
+              </div>
+
+              <strong>
+                Priestor pre obsah vyšetrenia
+              </strong>
+
+              <div
+                style={{
+                  marginTop: "8px",
+                }}
+              >
+                Sem neskôr pridáme anamnézu,
+                použité metódy, výsledky testov,
+                interpretáciu, záver a odporúčania.
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+  );
+}
+
     return (
       <div style={styles.app}>
         <header style={styles.header}>
@@ -345,111 +721,271 @@ function App() {
               </div>
             </nav>
           </aside>
+       <main style={styles.main}>
+		 <ClientDetail
+			client={selectedClient}
+			onBack={() => setSelectedClient(null)}
+			onEdit={handleUpdateClient}
+			/>
+            {/* ==================================================
+                EXAMINATIONS
+            ================================================== */}
 
-          <main style={styles.main}>
-            <button
-              style={styles.secondaryButton}
-              onClick={() =>
-                setSelectedClient(null)
-              }
-            >
-              ← Späť na klientov
-            </button>
+            <section style={styles.card}>
+              <div style={styles.sectionHeader}>
+                <h2 style={styles.sectionTitle}>
+                  Vyšetrenia
+                </h2>
 
-            <div style={styles.clientHeader}>
-              <div>
-                <h1 style={styles.title}>
-                  {selectedClient.firstName}{" "}
-                  {selectedClient.lastName}
-                </h1>
+                <button
+                  style={styles.primaryButton}
+                  onClick={() =>
+                    setShowExaminationForm(
+                      true
+                    )
+                  }
+                >
+                  + Nové vyšetrenie
+                </button>
+              </div>
 
-                <p style={styles.subtitle}>
-                  Karta klienta
+              {showExaminationForm && (
+                <div style={styles.formCard}>
+                  <h3 style={styles.formTitle}>
+                    Nové vyšetrenie
+                  </h3>
+
+                  <form
+                    onSubmit={
+                      handleExaminationSubmit
+                    }
+                  >
+                    <div
+                      style={styles.formGrid}
+                    >
+                      <div>
+                        <label
+                          style={styles.label}
+                        >
+                          Dátum
+                        </label>
+
+                        <input
+                          type="date"
+                          style={styles.input}
+                          value={
+                            examinationForm.date
+                          }
+                          onChange={(event) =>
+                            handleExaminationChange(
+                              "date",
+                              event.target.value
+                            )
+                          }
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          style={styles.label}
+                        >
+                          Typ vyšetrenia
+                        </label>
+
+                        <input
+                          style={styles.input}
+                          value={
+                            examinationForm.type
+                          }
+                          onChange={(event) =>
+                            handleExaminationChange(
+                              "type",
+                              event.target.value
+                            )
+                          }
+                          placeholder="Napr. psychologické vyšetrenie"
+                        />
+                      </div>
+
+                      <div>
+                        <label
+                          style={styles.label}
+                        >
+                          Stav
+                        </label>
+
+                        <select
+                          style={styles.input}
+                          value={
+                            examinationForm.status
+                          }
+                          onChange={(event) =>
+                            handleExaminationChange(
+                              "status",
+                              event.target.value
+                            )
+                          }
+                        >
+                          <option value="PLANNED">
+                            Naplánované
+                          </option>
+
+                          <option value="COMPLETED">
+                            Uskutočnené
+                          </option>
+
+                          <option value="CANCELLED">
+                            Zrušené
+                          </option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div
+                      style={
+                        styles.formSingleField
+                      }
+                    >
+                      <label
+                        style={styles.label}
+                      >
+                        Poznámka
+                      </label>
+
+                      <textarea
+                        style={
+                          styles.textarea
+                        }
+                        value={
+                          examinationForm.notes
+                        }
+                        onChange={(event) =>
+                          handleExaminationChange(
+                            "notes",
+                            event.target.value
+                          )
+                        }
+                        placeholder="Poznámka k vyšetreniu..."
+                        rows={4}
+                      />
+                    </div>
+
+                    <div
+                      style={styles.formActions}
+                    >
+                      <button
+                        type="button"
+                        style={
+                          styles.secondaryButton
+                        }
+                        onClick={() =>
+                          setShowExaminationForm(
+                            false
+                          )
+                        }
+                        disabled={
+                          savingExamination
+                        }
+                      >
+                        Zrušiť
+                      </button>
+
+                      <button
+                        type="submit"
+                        style={
+                          styles.primaryButton
+                        }
+                        disabled={
+                          savingExamination
+                        }
+                      >
+                        {savingExamination
+                          ? "Ukladám..."
+                          : "Uložiť vyšetrenie"}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {loadingExaminations ? (
+                <p>
+                  Načítavam vyšetrenia...
                 </p>
-              </div>
-            </div>
-
-            <section style={styles.card}>
-              <h2 style={styles.sectionTitle}>
-                Základné údaje
-              </h2>
-
-              <div style={styles.detailGrid}>
-                <div>
-                  <div style={styles.detailLabel}>
-                    Meno
-                  </div>
-
-                  <div style={styles.detailValue}>
-                    {selectedClient.firstName}
-                  </div>
+              ) : examinations.length === 0 ? (
+                <div
+                  style={styles.placeholder}
+                >
+                  Zatiaľ žiadne vyšetrenia.
                 </div>
+              ) : (
+                <div
+                  style={
+                    styles.examinationList
+                  }
+                >
+                  {examinations.map(
+                    (examination) => (
+                      <div
+						key={examination.id}
+						style={styles.examinationItem}
+						onClick={() =>
+						setSelectedExamination(examination)
+						}
+						>
+                        <div
+                          style={
+                            styles.examinationMain
+                          }
+                        >
+                          <div
+                            style={
+                              styles.examinationTitle
+                            }
+                          >
+                            {examination.type}
+                          </div>
 
-                <div>
-                  <div style={styles.detailLabel}>
-                    Priezvisko
-                  </div>
+                          <div
+                            style={
+                              styles.examinationDate
+                            }
+                          >
+                            {formatDate(
+                              examination.date
+                            )}
+                          </div>
+                        </div>
 
-                  <div style={styles.detailValue}>
-                    {selectedClient.lastName}
-                  </div>
+                        <div
+                          style={
+                            styles.examinationStatus
+                          }
+                        >
+                          {examinationStatusLabel(
+                            examination.status
+                          )}
+                        </div>
+
+                        {examination.notes && (
+                          <div
+                            style={
+                              styles.examinationNotes
+                            }
+                          >
+                            {examination.notes}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  )}
                 </div>
-
-                <div>
-                  <div style={styles.detailLabel}>
-                    Dátum narodenia
-                  </div>
-
-                  <div style={styles.detailValue}>
-                    {selectedClient.dateOfBirth
-                      ? new Date(
-                          selectedClient.dateOfBirth
-                        ).toLocaleDateString("sk-SK")
-                      : "Neuvedený"}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={styles.detailLabel}>
-                    Vek
-                  </div>
-
-                  <div style={styles.detailValue}>
-                    {calculateAge(
-                      selectedClient.dateOfBirth
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={styles.detailLabel}>
-                    Pohlavie
-                  </div>
-
-                  <div style={styles.detailValue}>
-                    {selectedClient.sex === "MALE"
-                      ? "Muž"
-                      : selectedClient.sex ===
-                        "FEMALE"
-                      ? "Žena"
-                      : selectedClient.sex ===
-                        "OTHER"
-                      ? "Iné"
-                      : "Neuvedené"}
-                  </div>
-                </div>
-              </div>
+              )}
             </section>
 
-            <section style={styles.card}>
-              <h2 style={styles.sectionTitle}>
-                Vyšetrenia
-              </h2>
-
-              <div style={styles.placeholder}>
-                Zatiaľ žiadne vyšetrenia.
-              </div>
-            </section>
+            {/* ==================================================
+                QUESTIONNAIRES
+            ================================================== */}
 
             <section style={styles.card}>
               <h2 style={styles.sectionTitle}>
@@ -457,7 +993,8 @@ function App() {
               </h2>
 
               <div style={styles.placeholder}>
-                Zatiaľ žiadne vyplnené dotazníky.
+                Zatiaľ žiadne vyplnené
+                dotazníky.
               </div>
             </section>
           </main>
@@ -469,6 +1006,7 @@ function App() {
   // ==========================================================
   // CLIENT LIST
   // ==========================================================
+ 
 
   return (
     <div style={styles.app}>
@@ -525,8 +1063,8 @@ function App() {
               </h1>
 
               <p style={styles.subtitle}>
-                Zoznam klientov a ich psychologických
-                vyšetrení
+                Zoznam klientov a ich
+                psychologických vyšetrení
               </p>
             </div>
 
@@ -539,6 +1077,10 @@ function App() {
               + Nový klient
             </button>
           </div>
+
+          {/* ==================================================
+              NEW CLIENT FORM
+          ================================================== */}
 
           {showForm && (
             <section style={styles.formCard}>
@@ -557,7 +1099,7 @@ function App() {
                       style={styles.input}
                       value={form.firstName}
                       onChange={(event) =>
-                        handleChange(
+                        handleClientChange(
                           "firstName",
                           event.target.value
                         )
@@ -575,7 +1117,7 @@ function App() {
                       style={styles.input}
                       value={form.lastName}
                       onChange={(event) =>
-                        handleChange(
+                        handleClientChange(
                           "lastName",
                           event.target.value
                         )
@@ -594,7 +1136,7 @@ function App() {
                       style={styles.input}
                       value={form.dateOfBirth}
                       onChange={(event) =>
-                        handleChange(
+                        handleClientChange(
                           "dateOfBirth",
                           event.target.value
                         )
@@ -611,7 +1153,7 @@ function App() {
                       style={styles.input}
                       value={form.sex}
                       onChange={(event) =>
-                        handleChange(
+                        handleClientChange(
                           "sex",
                           event.target.value
                         )
@@ -634,6 +1176,67 @@ function App() {
                       </option>
                     </select>
                   </div>
+
+                  <div>
+                    <label style={styles.label}>
+                      Email
+                    </label>
+
+                    <input
+                      type="email"
+                      style={styles.input}
+                      value={form.email}
+                      onChange={(event) =>
+                        handleClientChange(
+                          "email",
+                          event.target.value
+                        )
+                      }
+                      placeholder="email@priklad.sk"
+                    />
+                  </div>
+
+                  <div>
+                    <label style={styles.label}>
+                      Telefón
+                    </label>
+
+                    <input
+                      type="tel"
+                      style={styles.input}
+                      value={form.phone}
+                      onChange={(event) =>
+                        handleClientChange(
+                          "phone",
+                          event.target.value
+                        )
+                      }
+                      placeholder="+421..."
+                    />
+                  </div>
+                </div>
+
+                <div
+                  style={
+                    styles.formSingleField
+                  }
+                >
+                  <label style={styles.label}>
+                    Poznámky
+                  </label>
+
+                  <textarea
+                    style={styles.textarea}
+                    value={form.notes}
+                    onChange={(event) =>
+                      handleClientChange(
+                        "notes",
+                        event.target.value
+                      )
+                    }
+                    placeholder="Poznámky ku klientovi..."
+                    rows={4}
+                  />
                 </div>
 
                 <div style={styles.formActions}>
@@ -662,6 +1265,10 @@ function App() {
             </section>
           )}
 
+          {/* ==================================================
+              CLIENT TABLE
+          ================================================== */}
+
           <section style={styles.card}>
             {loading ? (
               <p>Načítavam klientov...</p>
@@ -672,12 +1279,14 @@ function App() {
                 </div>
 
                 <h2>
-                  Zatiaľ nemáte žiadnych klientov
+                  Zatiaľ nemáte žiadnych
+                  klientov
                 </h2>
 
                 <p>
-                  Vytvorte prvého klienta pomocou
-                  tlačidla „Nový klient“.
+                  Vytvorte prvého klienta
+                  pomocou tlačidla „Nový
+                  klient“.
                 </p>
               </div>
             ) : (
@@ -699,6 +1308,10 @@ function App() {
                     <th style={styles.th}>
                       Pohlavie
                     </th>
+
+                    <th style={styles.th}>
+                      Kontakt
+                    </th>
                   </tr>
                 </thead>
 
@@ -707,7 +1320,9 @@ function App() {
                     <tr
                       key={client.id}
                       onClick={() =>
-                        setSelectedClient(client)
+                        handleSelectClient(
+                          client
+                        )
                       }
                       style={styles.tableRow}
                     >
@@ -719,13 +1334,9 @@ function App() {
                       </td>
 
                       <td style={styles.td}>
-                        {client.dateOfBirth
-                          ? new Date(
-                              client.dateOfBirth
-                            ).toLocaleDateString(
-                              "sk-SK"
-                            )
-                          : "—"}
+                        {formatDate(
+                          client.dateOfBirth
+                        )}
                       </td>
 
                       <td style={styles.td}>
@@ -737,11 +1348,41 @@ function App() {
                       <td style={styles.td}>
                         {client.sex === "MALE"
                           ? "Muž"
-                          : client.sex === "FEMALE"
+                          : client.sex ===
+                            "FEMALE"
                           ? "Žena"
-                          : client.sex === "OTHER"
+                          : client.sex ===
+                            "OTHER"
                           ? "Iné"
                           : "Neuvedené"}
+                      </td>
+
+                      <td style={styles.td}>
+                        {client.email ||
+                        client.phone ? (
+                          <div>
+                            {client.email && (
+                              <div>
+                                {client.email}
+                              </div>
+                            )}
+
+                            {client.phone && (
+                              <div
+                                style={{
+                                  color:
+                                    "#6b7280",
+                                  marginTop:
+                                    "3px",
+                                }}
+                              >
+                                {client.phone}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -754,6 +1395,10 @@ function App() {
     </div>
   );
 }
+
+// ============================================================
+// STYLES
+// ============================================================
 
 const styles: Record<
   string,
@@ -899,12 +1544,6 @@ const styles: Record<
     fontWeight: 600,
   },
 
-  main: {
-    flex: 1,
-    padding: "36px 44px",
-    maxWidth: "1400px",
-  },
-
   pageHeader: {
     display: "flex",
     justifyContent: "space-between",
@@ -955,13 +1594,11 @@ const styles: Record<
   },
 
   formCard: {
-    background: "#ffffff",
+    background: "#f9fafb",
     border: "1px solid #e5e7eb",
-    borderRadius: "12px",
+    borderRadius: "10px",
     padding: "24px",
     marginBottom: "24px",
-    boxShadow:
-      "0 1px 2px rgba(0,0,0,0.03)",
   },
 
   formTitle: {
@@ -975,6 +1612,10 @@ const styles: Record<
     gridTemplateColumns:
       "repeat(2, minmax(200px, 1fr))",
     gap: "20px",
+  },
+
+  formSingleField: {
+    marginTop: "20px",
   },
 
   label: {
@@ -992,6 +1633,19 @@ const styles: Record<
     borderRadius: "7px",
     fontSize: "14px",
     background: "#ffffff",
+  },
+
+  textarea: {
+    width: "100%",
+    boxSizing: "border-box",
+    padding: "10px 12px",
+    border: "1px solid #d1d5db",
+    borderRadius: "7px",
+    fontSize: "14px",
+    background: "#ffffff",
+    resize: "vertical",
+    fontFamily:
+      "Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
   },
 
   formActions: {
@@ -1041,6 +1695,13 @@ const styles: Record<
     marginBottom: "28px",
   },
 
+  sectionHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "22px",
+  },
+
   sectionTitle: {
     marginTop: 0,
     marginBottom: "22px",
@@ -1065,12 +1726,72 @@ const styles: Record<
     fontWeight: 500,
   },
 
+  notesBox: {
+    padding: "16px",
+    background: "#f9fafb",
+    borderRadius: "8px",
+    whiteSpace: "pre-wrap",
+    lineHeight: 1.6,
+    fontSize: "14px",
+  },
+
   placeholder: {
     padding: "30px",
     background: "#f9fafb",
     borderRadius: "8px",
     color: "#6b7280",
     textAlign: "center",
+  },
+
+  examinationList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+  },
+
+  examinationItem: {
+    border: "1px solid #e5e7eb",
+    borderRadius: "9px",
+    padding: "16px",
+    background: "#ffffff",
+  },
+
+  examinationMain: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "20px",
+  },
+
+  examinationTitle: {
+    fontSize: "16px",
+    fontWeight: 600,
+  },
+
+  examinationDate: {
+    color: "#6b7280",
+    fontSize: "14px",
+  },
+
+  examinationStatus: {
+    display: "inline-block",
+    marginTop: "10px",
+    padding: "5px 9px",
+    borderRadius: "6px",
+    background: "#eef2ff",
+    color: "#4338ca",
+    fontSize: "12px",
+    fontWeight: 600,
+  },
+
+  examinationNotes: {
+    marginTop: "12px",
+    paddingTop: "12px",
+    borderTop: "1px solid #f0f0f0",
+    color: "#6b7280",
+    fontSize: "14px",
+    lineHeight: 1.5,
+    whiteSpace: "pre-wrap",
   },
 };
 
